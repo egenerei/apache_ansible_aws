@@ -1,0 +1,12 @@
+---
+- name: Test connectivity to web servers
+  hosts: webservers
+  tasks:
+    - name: Ping the hosts
+      ping:
+
+    - name: Creating directory for testing
+      file: 
+        path: ~/prueba 
+        state: directory
+        mode: '0755'

@@ -1,0 +1,160 @@
+---
+- name: Configure web server
+  hosts: webservers
+  become: true
+  vars:
+    admin_passwd: /etc/apache2/admin/.htpasswd
+    sysadmin_passwd: /etc/apache2/sysadmin/.htpasswd
+    conf_file: /etc/apache2/apache2.conf
+    server_name: localhost
+  tasks:
+    - name: Install curl
+      ansible.builtin.package:
+        name: curl
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install apache2
+      ansible.builtin.package:
+        name: apache2
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install php
+      ansible.builtin.package:
+        name: 
+          - php
+          - libapache2-mod-php
+        update_cache: yes
+        cache_valid_time: 3600
+      notify:
+        - Restart apache2
+
+    - name: Install required packages for Certbot
+      apt:
+        name:
+          - certbot
+          - python3-certbot-apache 
+        state: present
+        update_cache: yes
+
+    - name: Create directory for admin credentials
+      file: 
+        path: /etc/apache2/admin 
+        state: directory
+        mode: '0755'
+
+    - name: Create directory for sysadmin credentials
+      file: 
+        path: /etc/apache2/sysadmin 
+        state: directory
+        mode: '0755'
+
+    - name: Copy admin credentials
+      template: 
+        src: website_conf/admin/.htpasswd
+        dest: "{{ admin_passwd }}"
+      notify: 
+        - Restart apache2
+
+    - name: Copy sysadmin credentials
+      template: 
+        src: website_conf/sysadmin/.htpasswd
+        dest: "{{ sysadmin_passwd }}"
+      notify: 
+        - Restart apache2
+
+    - name: Stablish permissions for admin credentials
+      file:
+        path: "{{ admin_passwd }}"
+        mode: '0640'
+        owner: www-data
+        group: www-data
+
+    - name: Stablish permissions for sysadmin credentials
+      file:
+        path: "{{ sysadmin_passwd }}"
+        mode: '0640'
+        owner: www-data
+        group: www-data
+    
+    - name: Copy Apache2 configuration
+      template: 
+        src: website_conf/apache2.conf
+        dest: "{{ conf_file }}"
+      notify: 
+        - Restart apache2
+
+    - name: Disable the default-http site configuration
+      command:
+        cmd: a2dissite 000-default.conf
+      ignore_errors: yes
+    
+    - name: Disable the default-https site configuration
+      command:
+        cmd: a2dissite default-ssl.conf
+      ignore_errors: yes 
+
+    - name: Disable the old site configuration
+      command:
+        cmd: a2dissite root.conf
+      ignore_errors: yes 
+
+    - name: Remove old root.conf configuration file if exists
+      file:
+        path: "/etc/apache2/sites-available/root.conf"
+        state: absent
+
+    - name: Copy new configuration file root.conf to server
+      template: 
+        src: website_conf/root.conf
+        dest: "/etc/apache2/sites-available/"
+      notify:
+        - Restart apache2
+
+    - name: Enable new configuration file root.conf
+      command:
+        cmd: a2ensite root.conf 
+      notify:
+        - Restart apache2
+
+    - name: Copy website files to website root directory
+      copy:
+        src: website/
+        dest: /var/www/html/
+        owner: www-data
+        group: www-data
+        mode: '0755'
+      notify:
+        - Restart apache2
+
+    - name: Enable headers module in Apache2
+      command: a2enmod headers
+      notify: Restart apache2
+      changed_when: false
+
+    - name: Enable mime module in Apache2
+      command: a2enmod mime
+      notify: Restart apache2
+      changed_when: false
+
+    - name: Enable status module in Apache2
+      command: a2enmod status
+      notify: Restart apache2
+      changed_when: false
+
+    - name: Obtain SSL certificate with Certbot
+      command: >
+        certbot --apache --non-interactive --agree-tos
+        --email jorge.delreyprieto@egenerei.es
+        -d egenerei.es
+        -d www.egenerei.es
+      args:
+        creates: /etc/letsencrypt/live/egenerei.es/fullchain.pem
+      notify: Restart apache2
+
+  handlers:
+    - name: Restart apache2
+      service:
+        name: apache2
+        state: restarted
