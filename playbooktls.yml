@@ -6,7 +6,7 @@
     admin_passwd: /etc/apache2/admin/.htpasswd
     sysadmin_passwd: /etc/apache2/sysadmin/.htpasswd
     conf_file: /etc/apache2/apache2.conf
-    server_name: localhost
+    scripts: /home/ubuntu/scripts
   tasks:
     - name: Install curl
       ansible.builtin.package:
@@ -152,6 +152,40 @@
       args:
         creates: /etc/letsencrypt/live/egenerei.es/fullchain.pem
       notify: Restart apache2
+
+    - name: Creating directory for scripts
+      file: 
+        path: "{{ scripts }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy all scripts
+      copy:
+        src: "{{ item }}"
+        dest: "{{ scripts }}"
+      with_fileglob:
+        - "scripts/*.sh"
+
+    - name: Find all files in /home/ubuntu/scripts
+      ansible.builtin.find:
+        paths: "{{ scripts }}"
+        recurse: yes
+        file_type: file
+      register: files_to_change
+
+    - name: Set permissions to 755 for all scripts
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        mode: '0755'
+      loop: "{{ files_to_change.files }}"
+      when: files_to_change.matched > 0
+
+    - name: Ensure the DYNDNS update cron job is present
+      cron:
+        name: "Update DYNDNS every 5 minutes"
+        minute: "*/5"
+        job: "/home/ubuntu/dns_update.sh"
+        state: present
 
   handlers:
     - name: Restart apache2
